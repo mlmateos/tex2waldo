@@ -1,33 +1,40 @@
 # tex2waldo
 
-Pipeline **LaTeX → Markdown** para producir corpus auditables listos para OpenWALDO.
+**LaTeX → Markdown** pipeline for producing auditable, provenance-rich AI training corpora compatible with [OpenWALDO](https://github.com/openwaldo).
 
-Nació para convertir los libros de matemáticas de Manuel López Mateos
-(memor + tikz + tcolorbox + macros propias) en Markdown limpio para
-entrenamiento de IA, conservando la procedencia (DOI de Zenodo, CC-BY-4.0).
+Born to convert mathematics textbooks (memoir + tikz + tcolorbox + custom macros) into clean Markdown suitable for AI training, while preserving full provenance (Zenodo DOIs, CC-BY-4.0 licensing).
 
-## Uso
+## Usage
 
-    ./tex2waldo.sh <dir-libro> <main.tex> <Salida.md>
+    ./tex2waldo.sh <book-dir> <main.tex> <Output.md>
 
-Ejemplo:
+Example:
 
-    ./tex2waldo.sh ~/libros/ctos_logic_y_fun MLM-CLF-ebook.tex Conjuntos_Lógica_y_Funciones.md
+    ./tex2waldo.sh ~/books/sets-logic-functions MLM-ebook.tex Sets_Logic_Functions.md
 
-## Qué hace
+## What it does
 
-1. Copia `.tex`/`.bib` a `<dir>.pandoc` (zona de cuarentena; nunca toca tus fuentes).
-2. Sanea: comentarios fuera, TikZ fuera, envoltorios visuales desenvueltos,
-   macros del autor expandidas con diccionarios.
-3. Aplana `\include{...}` e inyecta un preámbulo mínimo que Pandoc tolera.
-4. Convierte con Pandoc (`--citeproc`).
+1. Copies `.tex`/`.bib` files to `<book-dir>.pandoc` (quarantine zone; **never touches your sources**).
+2. **Sanitizes**: strips comments, removes TikZ drawings, unwraps visual containers, expands author macros via dictionaries.
+3. **Flattens** `\include{...}` directives and injects a minimal preamble that Pandoc tolerates.
+4. **Converts** via Pandoc (`--citeproc` for bibliography resolution).
+
+## Design philosophy
+
+- **Separation of concerns**: the pipeline never modifies original `.tex` sources; it works on copies.
+- **Provenance-first**: output is ready for ingestion into OpenWALDO with full BOM (Bill of Materials) including source DOI, license, and SHA-256 hashes.
+- **Reproducible**: set `TEX2WALDO_TODAY=YYYY-MM-DD` to freeze `\today` expansion for bit-identical builds.
 
 ## Roadmap
 
-- [ ] Modo `lint --verbose` (reporta `archivo:línea` sin modificar nada).
-- [ ] User-command para TeXstudio ("modo corpus").
-- [ ] Diccionarios de macros por libro (`macros.yaml`).
+- [ ] `lint --verbose` mode: reports `file:line` issues without modifying sources.
+- [ ] TeXstudio integration ("corpus mode" user-command).
+- [ ] Per-book macro dictionaries (`macros.yaml`).
 
-## Procedencia del primer corpus
+## First corpus provenance
 
-*Conjuntos, Lógica y Funciones*, 3.ª ed. — https://doi.org/10.5281/zenodo.20433093 (CC-BY-4.0)
+*Conjuntos, Lógica y Funciones* (Sets, Logic, and Functions), 3rd ed. — https://doi.org/10.5281/zenodo.20433093 (CC-BY-4.0)
+
+## License
+
+This pipeline is free software. Use it to contribute auditable corpora to the AI commons.
