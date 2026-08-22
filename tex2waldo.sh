@@ -327,15 +327,34 @@ fi
 
 # --- Eliminar \let huérfanos (sin argumentos) ---
 sed -i -E 's/\s*\\let\s*$//g' "$MAIN_TEX"
+# --- Normalizar primitivas de dimensión sin llaves ---
+# Pandoc tolera \vspace{...}/\hspace{...} pero no \vskip/\hskip
+sed -i -E 's/\\vskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\vspace{\1}/g' "$MAIN_TEX"
+sed -i -E 's/\\hskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\hspace{\1}/g' "$MAIN_TEX"
+
+# --- Balanceo defensivo de llaves (repone } devorados por el saneamiento) ---
+OPEN=$(tr -cd '{' < "$MAIN_TEX" | wc -c)
+CLOSE=$(tr -cd '}' < "$MAIN_TEX" | wc -c)
+if [ "$OPEN" -gt "$CLOSE" ]; then
+    python3 - "$MAIN_TEX" $((OPEN-CLOSE)) <<'PY'
+import sys
+fn, n = sys.argv[1], int(sys.argv[2])
+s = open(fn, encoding='utf-8').read()
+s = s.replace('\\end{document}', '}\n' * n + '\\end{document}', 1)
+open(fn, 'w', encoding='utf-8').write(s)
+PY
+fi
+# Antes del cd a la cuarentena, fija la ruta de salida en el dir del libro
+OUTPUT_MD_FULL="$(cd "$SRC" && pwd)/$(basename "$OUTPUT_MD")"
 
 echo "[4/4] Compilando con Pandoc..."
 BIB="$(ls *.bib 2>/dev/null | head -n1 || true)"
 if [ -n "$BIB" ]; then
-    pandoc "$MAIN_TEX" --citeproc --bibliography="$BIB" -o "$OUTPUT_MD" --wrap=none
+    pandoc "$MAIN_TEX" --citeproc --bibliography="$BIB" -o "$OUTPUT_MD_FULL" --wrap=none
 else
-    pandoc "$MAIN_TEX" -o "$OUTPUT_MD" --wrap=none
+    pandoc "$MAIN_TEX" -o "$OUTPUT_MD_FULL" --wrap=none
 fi
 
 echo " -> Artefacto generado:"
-ls -lh "$OUTPUT_MD"
-wc -l "$OUTPUT_MD"
+ls -lh "$OUTPUT_MD_FULL"
+wc -l "$OUTPUT_MD_FULL"
