@@ -347,6 +347,11 @@ fi
 # Antes del cd a la cuarentena, fija la ruta de salida en el dir del libro
 OUTPUT_MD_FULL="$(cd "$SRC" && pwd)/$(basename "$OUTPUT_MD")"
 
+# --- Renombrar el aplanado: nombre distinguible del fuente original ---
+FLAT_TEX="${MAIN_TEX%.tex}.pandoc.tex"
+mv "$MAIN_TEX" "$FLAT_TEX"
+MAIN_TEX="$FLAT_TEX"
+
 echo "[4/4] Compilando con Pandoc..."
 BIB="$(ls *.bib 2>/dev/null | head -n1 || true)"
 if [ -n "$BIB" ]; then
