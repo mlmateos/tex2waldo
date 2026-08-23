@@ -61,7 +61,7 @@ Before running the pipeline, ensure you have the following installed on your sys
 - [x] Reproducible builds via `TEX2WALDO_TODAY`.
 - [x] Deep sanitization of internal TeX machinery (`\makeatletter`, orphaned `\let`, etc.).
 - [ ] `lint --verbose` mode: reports `file:line` semantic issues without modifying sources.
-- [ ] TeXstudio/Iguana integration ("corpus mode" user-command).
+- [ ] Iguana (TeXstudio fork) integration ("corpus mode" user-command).
 - [ ] Per-book macro dictionaries (`macros.yaml`) for complex macros (2+ arguments).
 
 ## First corpus provenance
