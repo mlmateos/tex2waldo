@@ -72,3 +72,8 @@ Before running the pipeline, ensure you have the following installed on your sys
 
 This pipeline is free software. Use it to contribute auditable corpora to the AI commons.
 
+---
+
+## 🤖 Acknowledgments
+This project was developed with the assistance of [Qwen](https://qwenlm.github.io/), a large language model by Alibaba Group.  
+
