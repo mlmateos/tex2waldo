@@ -7,12 +7,14 @@ set -euo pipefail
 
 # --- Parsing de flags opcionales ---
 STRIP_FRONTMATTER=0
+WALDO_MODE=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --strip-frontmatter)
             STRIP_FRONTMATTER=1
             shift
             ;;
+        --waldo) WALDO_MODE=1; shift ;;
         -*)
             echo "Error: flag desconocido $1" >&2
             echo "Uso: $0 [--strip-frontmatter] <dir-libro> <main.tex> <Nombre_Salida.md>" >&2
@@ -31,7 +33,14 @@ fi
 
 SRC="$1"
 MAIN_TEX="$2"
-OUTPUT_MD="$3"
+if [ "$WALDO_MODE" -eq 1 ]; then
+    OUTDIR="$(mkdir -p "$3" && cd "$3" && pwd)"
+    OUTPUT_MD="output.md"
+else
+    OUTDIR=""
+    OUTPUT_MD="$3"
+fi
+SRC_ABS="$(cd "$SRC" && pwd)"
 BUILD="${SRC}.pandoc"
 
 echo "[1/4] Preparando entorno limpio..."
@@ -209,6 +218,18 @@ for f in sorted(Path('.').glob('*.tex')):
 
 print(" -> Macros expandidas y entornos saneados.")
 PY
+# 1. Expandir \textls[...]{...} → solo el contenido (pandoc no lo reconoce)
+sed -i -E 's/\\textls\[[0-9]+\]\{([^}]*)\}/\1/g' "$MAIN_TEX"
+
+# 2. Expandir \zaa{A}{B}{C} → preservar la forma con tono (segundo argumento)
+sed -i -E 's/\\zaa\{[^}]*\}\{([^}]*)\}\{[^}]*\}/\1/g' "$MAIN_TEX"
+
+# 3. Expandir \stia{A}{B}{C} → preservar la traducción (tercer argumento)
+sed -i -E 's/\\stia\{[^}]*\}\{[^}]*\}\{([^}]*)\}/\1/g' "$MAIN_TEX"
+
+# 4. Limpiar artefactos de \lower y \kern que pandoc dejó como texto literal
+sed -i -E 's/\\lower-?[0-9.]+ex//g' "$MAIN_TEX"
+sed -i -E 's/\\kern-?[0-9.]+ex//g' "$MAIN_TEX"
 
 echo "[3/4] Aplanando el libro e inyectando preámbulo falso..."
 MAIN_TEX="$MAIN_TEX" STRIP_FRONTMATTER="$STRIP_FRONTMATTER" python3 - <<'PY'
@@ -345,7 +366,11 @@ open(fn, 'w', encoding='utf-8').write(s)
 PY
 fi
 # Antes del cd a la cuarentena, fija la ruta de salida en el dir del libro
-OUTPUT_MD_FULL="$(cd "$SRC" && pwd)/$(basename "$OUTPUT_MD")"
+if [ -n "$OUTDIR" ]; then
+    OUTPUT_MD_FULL="$OUTDIR/output.md"
+else
+    OUTPUT_MD_FULL="$SRC_ABS/$(basename "$OUTPUT_MD")"
+fi
 
 # --- Renombrar el aplanado: nombre distinguible del fuente original ---
 FLAT_TEX="${MAIN_TEX%.tex}.pandoc.tex"
@@ -355,11 +380,32 @@ MAIN_TEX="$FLAT_TEX"
 echo "[4/4] Compilando con Pandoc..."
 BIB="$(ls *.bib 2>/dev/null | head -n1 || true)"
 if [ -n "$BIB" ]; then
-    pandoc "$MAIN_TEX" --citeproc --bibliography="$BIB" -o "$OUTPUT_MD_FULL" --wrap=none
+    pandoc "$MAIN_TEX" --citeproc --bibliography="$BIB" -o "$OUTPUT_MD_FULL" --wrap=none || exit 2
 else
-    pandoc "$MAIN_TEX" -o "$OUTPUT_MD_FULL" --wrap=none
+    pandoc "$MAIN_TEX" -o "$OUTPUT_MD_FULL" --wrap=none || exit 2
 fi
 
 echo " -> Artefacto generado:"
 ls -lh "$OUTPUT_MD_FULL"
 wc -l "$OUTPUT_MD_FULL"
+if [ "$WALDO_MODE" -eq 1 ]; then
+    OUT_SHA=$(sha256sum "$OUTPUT_MD_FULL" | awk '{print $1}')
+    SRC_SHA=$(cat "$SRC_ABS"/*.tex | sha256sum | awk '{print $1}')
+    PANDOC_VER=$(pandoc --version | head -n1)
+    OUT_BYTES=$(stat -c%s "$OUTPUT_MD_FULL")
+    OUT_SHA="$OUT_SHA" SRC_SHA="$SRC_SHA" OUT_BYTES="$OUT_BYTES" \
+    PANDOC_VER="$PANDOC_VER" OUTDIR="$OUTDIR" \
+    DOI="${TEX2WALDO_DOI:-}" LICENSE="${TEX2WALDO_LICENSE:-}" python3 - <<'PY'
+import json, os
+m = {
+  "schema": "openwaldo.provenance/v1",
+  "engine": {"id": "tex2waldo", "version": "0.1.0", "pandoc": os.environ["PANDOC_VER"]},
+  "source": {"sha256": os.environ["SRC_SHA"]},
+  "output": {"path": "output.md", "sha256": os.environ["OUT_SHA"], "bytes": int(os.environ["OUT_BYTES"])},
+  "pipeline": ["quarantine", "sanitize", "flatten", "pandoc"],
+  "metadata": {"doi": os.environ.get("DOI",""), "license": os.environ.get("LICENSE","")},
+  "diagnostics": [],
+}
+json.dump(m, open(os.path.join(os.environ["OUTDIR"], "manifest.json"), "w"), indent=2)
+PY
+fi
