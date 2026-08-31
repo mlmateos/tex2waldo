@@ -31,6 +31,14 @@ if [ $# -ne 3 ]; then
     exit 1
 fi
 
+# sed in-place portable (BSD/GNU) y atómico: nunca usa `sed -i`
+sedi() {
+  local tmp
+  tmp=$(mktemp "${2}.XXXXXX")
+  sed -E "$1" "$2" > "$tmp"
+  mv "$tmp" "$2"
+}
+
 SRC="$1"
 MAIN_TEX="$2"
 if [ "$WALDO_MODE" -eq 1 ]; then
@@ -41,6 +49,7 @@ else
     OUTPUT_MD="$3"
 fi
 SRC_ABS="$(cd "$SRC" && pwd)"
+ORIG_PWD="$PWD"
 BUILD="${SRC}.pandoc"
 
 echo "[1/4] Preparando entorno limpio..."
@@ -219,17 +228,17 @@ for f in sorted(Path('.').glob('*.tex')):
 print(" -> Macros expandidas y entornos saneados.")
 PY
 # 1. Expandir \textls[...]{...} → solo el contenido (pandoc no lo reconoce)
-sed -i -E 's/\\textls\[[0-9]+\]\{([^}]*)\}/\1/g' "$MAIN_TEX"
+sedi 's/\\textls\[[0-9]+\]\{([^}]*)\}/\1/g' "$MAIN_TEX"
 
 # 2. Expandir \zaa{A}{B}{C} → preservar la forma con tono (segundo argumento)
-sed -i -E 's/\\zaa\{[^}]*\}\{([^}]*)\}\{[^}]*\}/\1/g' "$MAIN_TEX"
+sedi 's/\\zaa\{[^}]*\}\{([^}]*)\}\{[^}]*\}/\1/g' "$MAIN_TEX"
 
 # 3. Expandir \stia{A}{B}{C} → preservar la traducción (tercer argumento)
-sed -i -E 's/\\stia\{[^}]*\}\{[^}]*\}\{([^}]*)\}/\1/g' "$MAIN_TEX"
+sedi 's/\\stia\{[^}]*\}\{[^}]*\}\{([^}]*)\}/\1/g' "$MAIN_TEX"
 
 # 4. Limpiar artefactos de \lower y \kern que pandoc dejó como texto literal
-sed -i -E 's/\\lower-?[0-9.]+ex//g' "$MAIN_TEX"
-sed -i -E 's/\\kern-?[0-9.]+ex//g' "$MAIN_TEX"
+sedi 's/\\lower-?[0-9.]+ex//g' "$MAIN_TEX"
+sedi 's/\\kern-?[0-9.]+ex//g' "$MAIN_TEX"
 
 echo "[3/4] Aplanando el libro e inyectando preámbulo falso..."
 MAIN_TEX="$MAIN_TEX" STRIP_FRONTMATTER="$STRIP_FRONTMATTER" python3 - <<'PY'
@@ -342,16 +351,16 @@ if [ -n "${TEX2WALDO_TODAY:-}" ]; then
         echo "ERROR: TEX2WALDO_TODAY debe tener formato YYYY-MM-DD, recibido: '$TEX2WALDO_TODAY'" >&2
         exit 1
     fi
-    sed -i -E 's/(^|[^\\a-zA-Z])\\today([^a-zA-Z]|$)/\1'"$TEX2WALDO_TODAY"'\2/g' "$MAIN_TEX"
+    sedi 's/(^|[^\\a-zA-Z])\\today([^a-zA-Z]|$)/\1'"$TEX2WALDO_TODAY"'\2/g' "$MAIN_TEX"
     echo " -> \\today fijado a $TEX2WALDO_TODAY (build reproducible)" >&2
 fi
 
 # --- Eliminar \let huérfanos (sin argumentos) ---
-sed -i -E 's/\s*\\let\s*$//g' "$MAIN_TEX"
+sedi 's/[[:space:]]*\\let\s*$//g' "$MAIN_TEX"
 # --- Normalizar primitivas de dimensión sin llaves ---
 # Pandoc tolera \vspace{...}/\hspace{...} pero no \vskip/\hskip
-sed -i -E 's/\\vskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\vspace{\1}/g' "$MAIN_TEX"
-sed -i -E 's/\\hskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\hspace{\1}/g' "$MAIN_TEX"
+sedi 's/\\vskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\vspace{\1}/g' "$MAIN_TEX"
+sedi 's/\\hskip[[:space:]]*([0-9]+(\.[0-9]+)?[a-zA-Z]+)/\\hspace{\1}/g' "$MAIN_TEX"
 
 # --- Balanceo defensivo de llaves (repone } devorados por el saneamiento) ---
 OPEN=$(tr -cd '{' < "$MAIN_TEX" | wc -c)
@@ -365,11 +374,15 @@ s = s.replace('\\end{document}', '}\n' * n + '\\end{document}', 1)
 open(fn, 'w', encoding='utf-8').write(s)
 PY
 fi
-# Antes del cd a la cuarentena, fija la ruta de salida en el dir del libro
+# Ruta de salida: respeta la ruta exacta del usuario (nunca escribe en el árbol fuente)
 if [ -n "$OUTDIR" ]; then
-    OUTPUT_MD_FULL="$OUTDIR/output.md"
+OUTPUT_MD_FULL="$OUTDIR/output.md"
 else
-    OUTPUT_MD_FULL="$SRC_ABS/$(basename "$OUTPUT_MD")"
+case "$OUTPUT_MD" in
+  /*) OUTPUT_MD_FULL="$OUTPUT_MD" ;;
+  *)  OUTPUT_MD_FULL="$ORIG_PWD/$OUTPUT_MD" ;;
+esac
+mkdir -p "$(dirname "$OUTPUT_MD_FULL")"
 fi
 
 # --- Renombrar el aplanado: nombre distinguible del fuente original ---
@@ -389,10 +402,10 @@ echo " -> Artefacto generado:"
 ls -lh "$OUTPUT_MD_FULL"
 wc -l "$OUTPUT_MD_FULL"
 if [ "$WALDO_MODE" -eq 1 ]; then
-    OUT_SHA=$(sha256sum "$OUTPUT_MD_FULL" | awk '{print $1}')
-    SRC_SHA=$(cat "$SRC_ABS"/*.tex | sha256sum | awk '{print $1}')
+		OUT_SHA=$(openssl dgst -sha256 "$OUTPUT_MD_FULL" | awk '{print $NF}')
+		SRC_SHA=$(cat "$SRC_ABS"/*.tex | openssl dgst -sha256 | awk '{print $NF}')
     PANDOC_VER=$(pandoc --version | head -n1)
-    OUT_BYTES=$(stat -c%s "$OUTPUT_MD_FULL")
+		OUT_BYTES=$(wc -c < "$OUTPUT_MD_FULL" | tr -d '[:space:]')
     OUT_SHA="$OUT_SHA" SRC_SHA="$SRC_SHA" OUT_BYTES="$OUT_BYTES" \
     PANDOC_VER="$PANDOC_VER" OUTDIR="$OUTDIR" \
     DOI="${TEX2WALDO_DOI:-}" LICENSE="${TEX2WALDO_LICENSE:-}" python3 - <<'PY'
